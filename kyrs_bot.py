@@ -3,32 +3,47 @@ from telebot import types
 import base_users
 from test_lessons import Base_vid
 from private_data import *
+import base_video as bv
 
 TOKEN = API_TOKEN
 bot = telebot.TeleBot(TOKEN)
-BV = Base_vid(link_to_the_video_file, path_to_dir_lessons)
+
+
+def btn_user(role):
+    admin_funcs = ['Уроки', 'Добавить урок в список', 'Удаление урока из списка',
+                   'Изменить название урока', 'Заменить видео в уроке']
+    if role == 'admin':
+        markup = types.ReplyKeyboardMarkup()
+        for name_func in admin_funcs:
+            btn_less = types.KeyboardButton(name_func)
+            markup.add(btn_less)
+        return markup
+    else:
+        markup = types.ReplyKeyboardMarkup()
+        btn1_less = types.KeyboardButton('Уроки по программированию')
+        markup.add(btn1_less)
+        pass
 
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
+
     user_id, user_name = message.from_user.id, message.from_user.first_name
-    if base_users.get_users(user_id, user_name):
-        markup = types.ReplyKeyboardMarkup()
-        btn1_less = types.KeyboardButton('Уроки по программированию')
-        markup.add(btn1_less)
+    if user_id in admins.keys() and user_name in admins.values():
         bot.send_message(
-            message.chat.id, "Уже зарегестрированы", protect_content=True, reply_markup=markup)
+            message.chat.id, f'Приветствую, {user_name}', protect_content=True, reply_markup=btn_user('admin'))
+
+    elif base_users.get_users(user_id, user_name):
+        bot.send_message(
+            message.chat.id, f"Приветствую {user_name}", protect_content=True, reply_markup=btn_user('user'))
         return True
     else:
         bot.send_message(
             message.chat.id, "Регистрация", protect_content=True)
         registr(user_id, user_name)
         if base_users.get_users(user_id, user_name):
-            markup = types.ReplyKeyboardMarkup()
-            btn1_less = types.KeyboardButton('Уроки по программированию')
-            markup.add(btn1_less)
             bot.send_message(
-                message.chat.id, "Оплата прошла", protect_content=True, reply_markup=markup)
+                message.chat.id, "Оплата прошла", protect_content=True, reply_markup=btn_user('user'))
 
         else:
             bot.send_message(
@@ -37,33 +52,12 @@ def send_welcome(message):
         return True
 
 
-@bot.message_handler(commands=['admin'])
-def admin_panel(message):
-    admin_id, admin_name = message.from_user.id, message.from_user.first_name
-    admin_funcs = ['Добавить урок в список', 'Удаление урока из списка',
-                   'Изменить название урока', 'Заменить видео в уроке']
-    if admin_id in admins.keys() and admins[admin_id] == admin_name:
-        markup = types.ReplyKeyboardMarkup()
-        for name_func in admin_funcs:
-            btn_less = types.KeyboardButton(name_func)
-            markup.add(btn_less)
-        bot.send_message(
-            message.chat.id, 'Вот ваша панель управления курсом', protect_content=True, reply_markup=markup)
-        return True
-    else:
-        bot.send_message(
-            message.chat.id, "Вас нет в списке администраторов", protect_content=True)
-        return False
-
-
 def registr(user_id, user_name):
     """Проверяем оплатил ли он, и потом добавляем в список"""
     if buy_a_course():
         base_users.set_users(user_id, user_name)
-        # return 'Вы успешно зарегистрировались на курс'
         return True
     else:
-        # return 'Оплата ещё не пришла'
         return False
 
 
@@ -74,22 +68,23 @@ def buy_a_course():
 
 @bot.message_handler()
 def distribution(message):
-    # Вызывает функции администраторов в зависимости от сообщения
     id_chat = message.chat.id
     mes_txt = message.text
     user_id, user_name = message.from_user.id, message.from_user.first_name
     if user_id in admins.keys() and admins[user_id] == user_name:
-        funcs = {'Уроки по программированию': ['Запуск от администратора', t_less],
+        funcs = {'Уроки': [t_less],
                  'Добавить урок в список': [
             'Введите: Отправьте видео с его названием', add_vid],
             'Удаление урока из списка': ['Введите номер урока', del_vid],
             'Изменить название урока': ['Введите номер урока и его новое название, через пробел', edit_vid],
             'Заменить видео в уроке': ['Отправьте новое видео указав номер урока', edit_vid]}
         if mes_txt in funcs.keys():
-            bot.send_message(
-                id_chat, funcs[mes_txt][0], protect_content=True)
-            # funcs[mes_txt][1](message)
-            bot.register_next_step_handler(message, funcs[mes_txt][1])
+            if len(funcs[mes_txt]) > 1:
+                bot.send_message(
+                    id_chat, funcs[mes_txt][0], protect_content=True)
+                bot.register_next_step_handler(message, funcs[mes_txt][1])
+            else:
+                bot.register_next_step_handler(message, funcs[mes_txt][0])
         return True
     else:
         funcs = {'Уроки по программированию': t_less}
@@ -99,28 +94,34 @@ def distribution(message):
 
 
 def add_vid(message):
-    name = message.caption
+    mess = message.caption
+    mess = mess.split()
     # Получаем файл видео
     file_info = bot.get_file(message.video.file_id)
     # Скачиваем файл
     downloaded_file = bot.download_file(file_info.file_path)
-    BV.set_less(name, downloaded_file)
+    path_name = ''.join(mess[1:])
+    path_file = f'{path_to_dir_lessons}/{path_name}'
+    bv.write_video(path_file, downloaded_file)
+    path_file = path_file.replace('/', '\\')
+    id = int(mess[0])
+    name = ' '.join(mess[1:])
+    bv.set_less(id, name, path_file + '.mp4')
     bot.reply_to(message, "Видео успешно загружино на курс!")
     return True
 
 
 def edit_vid(message):
-    number, name = message.text.split()
-    BV.edit_name_less(number=int(number), new_name=name)
+    mess = message.text.split()
+    number, name = mess[0], ' '.join(mess[1:])
+    bv.edit_less(id=int(number), name=name, link=None)
     bot.reply_to(message, "Название видео изменено")
-    # print('Изменение')
-    # print(message.text)
-    # print('Считывание текста, или видео')
+
     return True
 
 
 def del_vid(message):
-    if BV.del_less(int(message.text)):
+    if bv.del_less(int(message.text)):
         bot.reply_to(message, 'Видео удалено')
     else:
         bot.reply_to(message, 'Видео с данным номером не найдено')
@@ -128,12 +129,12 @@ def del_vid(message):
 
 
 def t_less(message):
-    # Создается список уроков и отпавляется
+    # Создается список уроков и отпавляется пользователю
     markup = types.InlineKeyboardMarkup()
-    less = BV.get_less('all')
+    less = bv.get_less(0)
     for i in less:
-        number = i
-        name = less[i][0]
+        number = i[0]
+        name = i[1]
         markup.add(types.InlineKeyboardButton(
             f"{number}) {name}", callback_data=f'{number}'))
     bot.send_message(message.chat.id, 'Вот все уроки по программированию',
@@ -143,7 +144,7 @@ def t_less(message):
 
 @ bot.callback_query_handler(func=lambda callback: True)
 def callback_message(callback):
-    name, vid = BV.get_less(int(callback.data))
+    name, vid = bv.get_less(int(callback.data))
     with open(vid, 'rb') as vidi:
         bot.send_video(callback.message.chat.id,
                        vidi, protect_content=True, caption=name)
